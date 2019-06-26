@@ -4,6 +4,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 import logging
 from pathlib import Path
 import os
+from functools import lru_cache
 
 FORMAT = '%(asctime)s - %(name)20s - %(funcName)20s - %(levelname)8s - %(message)s'
 logging.basicConfig(level=logging.DEBUG, format=FORMAT)
@@ -33,6 +34,15 @@ class Widget(QtWidgets.QWidget):
         hLayout.addWidget(self.lastBtn)
         self.lastBtn.clicked.connect(self.loadLast)
 
+        self.linenumberEdit = QtWidgets.QLineEdit(self)
+        self.linenumberEdit.setMinimumWidth(20)
+        self.linenumberEdit.setMaximumWidth(80)
+        hLayout.addWidget(self.linenumberEdit)
+
+        self.gotoBtn = QtWidgets.QPushButton("Goto", self)
+        hLayout.addWidget(self.gotoBtn)
+        self.gotoBtn.clicked.connect(self.loadLine)
+
         vLayout.addLayout(hLayout)
 
         self.textwnd = QtWidgets.QTextEdit(self)
@@ -44,8 +54,14 @@ class Widget(QtWidgets.QWidget):
         self.statusBar = QtWidgets.QStatusBar()
         vLayout.addWidget(self.statusBar)
 
-        self.file_index = FileIndex(filename='')
-        self.chunksize = 2 * 1024 ** 2
+        self.chunksize = 5 * 1024 ** 2
+        self.linechunk = 10000
+
+        self.file_index_thread = FileIndex(filename='', linechunk=self.linechunk)
+        self.file_index_thread.signal.connect(self._file_index)
+
+        self.line_count_thread = LineCount(filename='')
+        self.line_count_thread.signal.connect(self._total_lines)
 
         self.fileName = None
         self.fileFormat = None
@@ -74,7 +90,6 @@ class Widget(QtWidgets.QWidget):
     def loadFirst(self):
         """Load first chunk of bytes"""
         logger.debug("loadFirst")
-        self.statusBar.showMessage(f"First loaded")
         if self.filelength <= self.chunksize:
             logger.debug(f"EOF {self.filelength} <= chunksize {self.chunksize}")
             text = self.reader(0, os.SEEK_SET, nbytes=None)
@@ -82,12 +97,11 @@ class Widget(QtWidgets.QWidget):
             logger.debug(f"EOF {self.filelength} >  chunksize{self.chunksize}")
             text = self.reader(0, os.SEEK_SET, nbytes=self.chunksize)
         self.textwnd.setText(text)
-
+        self.statusBar.showMessage(f"First loaded")
 
     def loadLast(self):
         """Load last chunk of bytes"""
         logger.debug("loadLast")
-        self.statusBar.showMessage(f"Last loaded")
         if self.filelength >= self.chunksize:
             logger.debug(f"EOF {self.filelength} >=  chunksize {self.chunksize}")
             text = self.reader(-self.chunksize, from_what=os.SEEK_END, nbytes=self.chunksize)
@@ -96,6 +110,22 @@ class Widget(QtWidgets.QWidget):
             text = self.reader(0, from_what=os.SEEK_SET)
         self.textwnd.setText(text)
         self.textwnd.moveCursor(QtGui.QTextCursor.End)
+        self.statusBar.showMessage(f"Last loaded")
+
+    def loadLine(self ):
+        """Move to  record in file"""
+        logger.debug("loadLine")
+        #import pdb; pdb.set_trace()
+        linenumber = int(self.linenumberEdit.text())
+        logger.debug(f"Loading line {linenumber}")
+        lineschunk =  self.linechunk  % linenumber
+        logger.debug(f"Loading from index position {lineschunk}")
+        byteposition = self.file_index[lineschunk]
+        logger.debug(f"Byteposition in file {byteposition}")
+        text = self.reader(byteposition, from_what=os.SEEK_SET, nbytes=self.chunksize)
+        self.textwnd.setText(text)
+        self.statusBar.showMessage(f"Line loaded")
+        #self.textwnd.moveCursor(QtGui.QTextCursor.End)
 
 
     def loadFile(self):
@@ -104,8 +134,10 @@ class Widget(QtWidgets.QWidget):
         fileName, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open File", "", "All Files (*);;CSV Files (*.csv);;TSV Files (*.txt; *.tsv);;Parquet Files (*.parc; *.parquet)");
         self.fileName = fileName
         logger.debug(f"File name: {fileName}")
+
         self.pathLE.setText(self.fileName)
-        self.file_index.filename = self.fileName
+        self.file_index_thread.filename = self.fileName
+        self.line_count_thread.filename = self.fileName
 
         self.fileFormat = Path(self.fileName).suffix
         logger.debug("File format is {}".format(self.fileFormat))
@@ -113,24 +145,35 @@ class Widget(QtWidgets.QWidget):
         self.filelength = self._filelength()
         logger.debug("File length in bytes is {}".format(self.filelength))
 
-
         self.loadFirst()
         self.estimate_lines()
 
         self.chunklines = self._chunklines()
 
+        self.file_index_thread.start()
+        self.line_count_thread.start()
 
     def estimate_lines(self):
         """Estime line count without iterating through file"""
         logger.debug("estimate Lines")
         self.filesize = Path(self.fileName).stat().st_size
         text = self.textwnd.toPlainText()
-        self.linesize = len(text.split("\n")[1].encode('utf-8'))
+        linetext = text.split("\n")[1] + "\\r\\n"
+        self.linesize = len(linetext.encode('utf-8'))
         self.estimated_lines = self.filesize // self.linesize
         logger.debug("Estimate Lines: {}".format(self.estimated_lines))
-        self.statusBar.showMessage(f"Estimated lines {self.estimated_lines}")
+        self.statusBar.showMessage(f"Estimated lines: {self.estimated_lines}")
+
+    def _total_lines(self, result):
+        self.total_lines = result
+        self.statusBar.showMessage(f"Total lines: {self.total_lines}")
+
+    def _file_index(self, result):
+        self.file_index = result
+        logger.debug("File index created: {}".format(self.file_index))
 
 
+    @lru_cache(8)
     def reader(self, offset, from_what=os.SEEK_SET, nbytes=None):
         """
         Read bytes from file using offsets
@@ -157,7 +200,11 @@ class Widget(QtWidgets.QWidget):
             logger.debug(f"Reading {read_bytes} from {read_position}")
             myfile.seek(offset, from_what)
             text = myfile.read(nbytes)
-            text = text.decode("utf-8" )
+            try:
+                text = text.decode("utf-8")
+            except Exception as e:
+                logger.warning(f"Could not encode file in unicode. {e}")
+                text = text.decode("latin1")
         return text
 
 
@@ -171,9 +218,31 @@ class FileIndex(QThread):
         self.filename = filename
 
     def run(self):
+        logger.debug("Indexing file...")
+        assert self.filename != ''
         with open(self.filename, 'r') as myfile:
             fileindex = {n: myfile.tell() for n, _ in enumerate(iter(myfile.readline, '')) if n % self.linechunk == 0}
+            logger.debug("Indexing file...Done")
             self.signal.emit(fileindex)
+
+
+class LineCount(QThread):
+    """Index the lines in a large file in a separate thread"""
+    signal = pyqtSignal('PyQt_PyObject')
+
+    def __init__(self, filename):
+        QThread.__init__(self)
+        self.filename = filename
+
+    def run(self):
+        logger.debug("Counting lines in file...")
+        assert self.filename != ''
+
+        with open(self.filename, 'r') as myfile:
+            for n, _ in enumerate(myfile):
+                pass
+        logger.debug(f"Counting lines in file...Done. {n} lines.")
+        self.signal.emit(n)
 
 
 if __name__ == "__main__":
