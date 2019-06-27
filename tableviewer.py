@@ -56,21 +56,25 @@ class Widget(QtWidgets.QWidget):
         self.setWindowTitle("Large File Reader")
         self.setWindowIcon(QtGui.QIcon(r'C:/Users/haederth/Downloads/baseline-arrow_right-24px.svg'))
 
-        self.pathLE = QtWidgets.QLineEdit(self)
-        hLayout.addWidget(self.pathLE)
+        # self.pathLE = QtWidgets.QLineEdit(self)
+        # hLayout.addWidget(self.pathLE)
 
         self.loadBtn = QtWidgets.QPushButton("Select File", self)
+        self.loadBtn.setMinimumWidth(80)
+        self.loadBtn.setMaximumWidth(80)
         hLayout.addWidget(self.loadBtn)
         self.loadBtn.clicked.connect(self.loadFile)
 
         self.firstBtn = QtWidgets.QPushButton("First", self)
         hLayout.addWidget(self.firstBtn)
         self.firstBtn.clicked.connect(self.loadFirst)
+        self.firstBtn.setMinimumWidth(40)
         self.firstBtn.setMaximumWidth(40)
 
         self.lastBtn = QtWidgets.QPushButton("Last", self)
         hLayout.addWidget(self.lastBtn)
         self.lastBtn.clicked.connect(self.loadLast)
+        self.lastBtn.setMinimumWidth(40)
         self.lastBtn.setMaximumWidth(40)
 
         self.linenumberEdit = QtWidgets.QLineEdit(self)
@@ -80,12 +84,20 @@ class Widget(QtWidgets.QWidget):
 
         self.gotoBtn = QtWidgets.QPushButton("Goto", self)
         hLayout.addWidget(self.gotoBtn)
+        self.gotoBtn.setMinimumWidth(50)
+        self.gotoBtn.setMaximumWidth(50)
         self.gotoBtn.clicked.connect(self.loadLine)
         self.gotoBtn.setEnabled(False)
 
         self.linesnumberCheck = QtWidgets.QCheckBox("Line Numbers")
         hLayout.addWidget(self.linesnumberCheck)
         #self.self.linesnumberCheck.stateChanged.connect(lambda: self.line_numbers()
+
+        self.tableBtn = QtWidgets.QPushButton("Show as table", self)
+        hLayout.addWidget(self.tableBtn)
+        self.tableBtn.clicked.connect(self.loadLast)
+        self.tableBtn.setMinimumWidth(80)
+        self.tableBtn.setMaximumWidth(80)
 
 
         vLayout.addLayout(hLayout)
@@ -105,7 +117,12 @@ class Widget(QtWidgets.QWidget):
         self.textwnd.setWordWrapMode(False)
         self.textwnd.setFont(QtGui.QFont('Courier New', 10))
         self.textwnd.ensureCursorVisible()
-        cursor = self.textwnd.textCursor()
+
+        self.pandasTv = QtWidgets.QTableView(self)
+        self.pandasTv.setSortingEnabled(True)
+        self.pandasTv.setMinimumWidth(0)
+        self.pandasTv.setMaximumWidth(0)
+        hLayoutText.addWidget(self.pandasTv)
 
         vLayout.addLayout(hLayoutText)
 
@@ -188,10 +205,11 @@ class Widget(QtWidgets.QWidget):
             logger.warning("Line number requested is smaller than 0. Returning first line.")
             linenumber = 0
         logger.debug(f"Loading line {linenumber}")
-        if linenumber == 0:
+        if linenumber <  self.linechunk:
             lineschunk = 0
         else:
             lineschunk = linenumber // self.linechunk * self.linechunk + 1
+
         logger.debug(f"Loading from index position {lineschunk}")
 
         byteposition = self.file_index[lineschunk]
@@ -216,7 +234,8 @@ class Widget(QtWidgets.QWidget):
         self.fileName = fileName
         logger.debug(f"File name: {fileName}")
 
-        self.pathLE.setText(self.fileName)
+        # self.pathLE.setText(self.fileName)
+        self.setWindowTitle("Large File Reader " + self.fileName)
         self.file_index_thread.filename = self.fileName
         self.line_count_thread.filename = self.fileName
 
@@ -306,6 +325,7 @@ class FileIndex(QThread):
         assert self.filename != ''
         with open(self.filename, 'r') as myfile:
             fileindex = {n: myfile.tell() for n, _ in enumerate(iter(myfile.readline, '')) if n % self.linechunk == 1}
+        fileindex.pop(1, None)
         fileindex[0] = 0
         logger.debug("Indexing file...Done")
         self.signal.emit(fileindex)
