@@ -7,6 +7,9 @@ import os
 from functools import lru_cache
 
 from PandasModel import PandasModel
+import pandas as pd
+import csv
+from io import StringIO
 
 FORMAT = '%(asctime)s - %(name)20s - %(funcName)20s - %(levelname)8s - %(message)s'
 logging.basicConfig(level=logging.DEBUG, format=FORMAT)
@@ -22,6 +25,7 @@ class Widget(QtWidgets.QWidget):
 
         self.chunksize = 2 * 1024 ** 2
         self.linechunk = 10000
+        self.linenumseparator = '\t'
 
         self.file_index_thread = FileIndex(filename='', linechunk=self.linechunk)
         self.file_index_thread.signal.connect(self._file_index)
@@ -39,6 +43,11 @@ class Widget(QtWidgets.QWidget):
         self.headsize = None
         self.estimated_lines = None
         self.total_lines = None
+        self.header = None
+        self.has_header = None
+        self.delimiter = None
+        self.dialect = None
+        self.currentstartline = None #row number of the current chunk
         self.line_numbers = self.linesnumberCheck.isChecked
 
     def initUI(self):
@@ -95,9 +104,11 @@ class Widget(QtWidgets.QWidget):
 
         self.tableBtn = QtWidgets.QPushButton("Show as table", self)
         hLayout.addWidget(self.tableBtn)
-        self.tableBtn.clicked.connect(self.loadLast)
+        self.tableBtn.setCheckable(True)
+        self.tableBtn.clicked.connect(self._show_as_table)
         self.tableBtn.setMinimumWidth(80)
         self.tableBtn.setMaximumWidth(80)
+
 
 
         vLayout.addLayout(hLayout)
@@ -120,8 +131,12 @@ class Widget(QtWidgets.QWidget):
 
         self.pandasTv = QtWidgets.QTableView(self)
         self.pandasTv.setSortingEnabled(True)
+        #self.pandasTv.setFont(QtGui.QFont('Courier New', 8))
+        self.pandasTv.setFont(QtGui.QFont('Arial', 8))
+        self.pandasTv.setWordWrap(False)
         self.pandasTv.setMinimumWidth(0)
         self.pandasTv.setMaximumWidth(0)
+
         hLayoutText.addWidget(self.pandasTv)
 
         vLayout.addLayout(hLayoutText)
@@ -143,29 +158,73 @@ class Widget(QtWidgets.QWidget):
             length = f.tell()  # get current position
         return length
 
-    def _line_numbers(self, text, linestart=0):
-        lines = '\n'.join(str(n + linestart) for n,_ in enumerate(text.split('\n')))
-        return lines
+    def _line_numbers(self, text, linestart=0, return_as_text=True):
+        lineno = [n + linestart for n, _ in enumerate(text.split('\n'))]
+        if return_as_text:
+            strlines = [str(x) for x in lineno]
+            lines = '\n'.join(strlines)
+            return lines
+        else:
+            return lineno
 
-    def _add_line_numbers(selfself, text, linestart=0):
-        a = [[str(n + linestart), ' | ', _] for n, _ in enumerate(text.split('\n'))]
-        #a = a[1:]
+    def _add_line_numbers(self, text, linestart=0):
+        a = [[str(n + linestart), self.linenumseparator, _] for n, _ in enumerate(text.split('\n'))]
         c = [''.join(b) for b in a]
         d = '\n'.join(c)
         return d
 
+    def reset_fileproperties(self):
+        self.dialect = None
+        self.delimiter = None
+        self.has_header = None
+        self.header = None
+        self.file_index = None
+        self.total_lines = None
+        self.estimated_lines = None
+        self.currentstartline = None
+        self.chunklines = None
+
+    def set_fileproperties(self, text):
+
+        row = text[:text.find("\n")]
+        samplerows = text[:text.find("\n", 5)]
+
+        try:
+            # self.dialect = csv.Sniffer().sniff(toprows[0], delimiters=["\t", ",", ";", "|", "||", "~"])
+            self.dialect = csv.Sniffer().sniff(row, delimiters=["\t", ",", ";", "|", "||", "~"])
+        except Exception as e:
+            logger.warning(e)
+        logger.debug(f"Dialect is {self.dialect}")
+        self.delimiter = self.dialect.delimiter
+        logger.debug(f"Delimiter is: {ord(self.delimiter)}")
+        self.has_header = csv.Sniffer().has_header(samplerows)
+        logger.debug(f"Has header: {self.has_header}")
+        self.header = row.split(self.delimiter)
+        if len(self.header) < 2:
+            logger.warning("Header is likely not properly separated.")
+        logger.debug(f"Header is: {self.header}")
+
     def loadFirst(self):
         """Load first chunk of bytes"""
         logger.debug("loadFirst")
+
         if self.filelength <= self.chunksize:
             logger.debug(f"EOF {self.filelength} <= chunksize {self.chunksize}")
             text = self.reader(self.fileName, 0, os.SEEK_SET, nbytes=None)
         else:
             logger.debug(f"EOF {self.filelength} >  chunksize{self.chunksize}")
             text = self.reader(self.fileName, 0, os.SEEK_SET, nbytes=self.chunksize)
+
+        if not self.delimiter: # determine once the basic properties of this file, such as delimtier, quoting etc.
+            self.set_fileproperties(text)
+
+        self.currentstartline = 0
         if self.line_numbers():
-            text = self._add_line_numbers(text, linestart=0)
+            text = self._add_line_numbers(text, linestart=self.currentstartline)
         self.textwnd.setText(text)
+
+        if self.tableBtn.isChecked():
+            self._show_as_table()
 
     def loadLast(self):
         """Load last chunk of bytes"""
@@ -180,44 +239,55 @@ class Widget(QtWidgets.QWidget):
         lastchunklines = self._chunklines()
         logger.debug(f"Lines in the last chunk: {lastchunklines}")
 
+        if self.total_lines:
+            logger.debug(f"Total lines are known: {self.total_lines}")
+            self.currentstartline = self.total_lines - lastchunklines
+        else:
+            logger.debug(f"Lines are estimated: {self.estimated_lines}")
+            self.currentstartline = self.estimated_lines - lastchunklines
+        logger.debug(f"Last chunk startline: {self.currentstartline }")
+
         if self.line_numbers():
-            if self.total_lines:
-                logger.debug(f"Total lines are known: {self.total_lines}")
-                startline = self.total_lines - lastchunklines
-            else:
-                logger.debug(f"Lines are estimated: {self.estimated_lines}")
-                startline = self.estimated_lines - lastchunklines
-            logger.debug(f"Last chunk startline: {startline}")
-            text = self._add_line_numbers(text, linestart=startline)
+            text = self._add_line_numbers(text, linestart=self.currentstartline)
+
         self.textwnd.setText(text)
         self.textwnd.moveCursor(QtGui.QTextCursor.End)
 
+        if self.tableBtn.isChecked():
+            self._show_as_table()
+            #self.pandasTv.moveCursor(QtGui.QTextCursor.End)
 
+    def currentchunk(self, linenumber):
+        """Given a line number, return the current index chunk to load"""
 
-    def loadLine(self):
-        """Move to  record in file"""
-        logger.debug("loadLine")
-        linenumber = int(self.linenumberEdit.text())
         if linenumber > self.total_lines:
             logger.warning("Line number requested is greater than total lines in file. Returning last line.")
             linenumber = self.total_lines
         elif linenumber < 0:
             logger.warning("Line number requested is smaller than 0. Returning first line.")
             linenumber = 0
+
         logger.debug(f"Loading line {linenumber}")
         if linenumber <  self.linechunk:
             lineschunk = 0
         else:
             lineschunk = linenumber // self.linechunk * self.linechunk + 1
+        return lineschunk
 
-        logger.debug(f"Loading from index position {lineschunk}")
+    def loadLine(self):
+        """Move to  record in file"""
+        logger.debug("loadLine")
+        linenumber = int(self.linenumberEdit.text())
 
-        byteposition = self.file_index[lineschunk]
+        self.currentstartline = self.currentchunk(linenumber)
+        logger.debug(f"Loading from index position {self.currentstartline}")
+
+        byteposition = self.file_index[self.currentstartline] #must be an index key
         logger.debug(f"Byteposition in file {byteposition}")
         text = self.reader(self.fileName, byteposition, from_what=os.SEEK_SET, nbytes=self.chunksize)
         # self.linewnd.setText(self._line_numbers(text, linenumber))
         if self.line_numbers():
-            text = self._add_line_numbers(text, linestart=lineschunk)
+            text = self._add_line_numbers(text, linestart=self.currentstartline)
         self.textwnd.setText(text)
 
         # move cursor to selected line
@@ -227,10 +297,24 @@ class Widget(QtWidgets.QWidget):
         cursor.movePosition(QtGui.QTextCursor.Down, QtGui.QTextCursor.MoveAnchor, offset)
         self.textwnd.setTextCursor(cursor)
 
+        if self.tableBtn.isChecked():
+            self._show_as_table()
+            #cursor = self.pandasTv.textCursor()
+            #cursor.movePosition(QtGui.QTextCursor.Down, QtGui.QTextCursor.MoveAnchor, offset)
+            #self.pandasTv.setTextCursor(cursor)
+
     def loadFile(self):
         """Load the file from file picker"""
         logger.debug("loadFile")
         fileName, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open File", "", "All Files (*);;CSV Files (*.csv);;TSV Files (*.txt; *.tsv);;Parquet Files (*.parc; *.parquet)");
+
+        if self.file_index_thread.isRunning():
+            self.file_index_thread.terminate()
+        if self.line_count_thread.isRunning():
+            self.line_count_thread.terminate()
+
+        self.reset_fileproperties()
+
         self.fileName = fileName
         logger.debug(f"File name: {fileName}")
 
@@ -273,6 +357,31 @@ class Widget(QtWidgets.QWidget):
         self.gotoBtn.setEnabled(True)
         logger.debug("File index created: {}".format(self.file_index))
 
+    def _show_as_table(self):
+
+        if self.tableBtn.isChecked():
+            self.pandasTv.show()
+
+            #if self.pandasTv.isHidden():
+            #    self.pandasTv.setVisible(True)
+            text = self.textwnd.toPlainText()
+            #lineno = self._line_numbers(text=text, linestart=self.currentstartline, return_as_text=False)
+            self.pandasTv.setMaximumWidth(10000)
+            mydata = StringIO(text)
+            df = pd.read_csv(mydata, dialect=self.dialect, names=self.header, error_bad_lines=False)
+            #if self.total_lines:
+            #    rngIndex = pd.RangeIndex(start=self.currentstartline, stop=self.currentstartline + len(df), step=1)
+            #    df.index = rngIndex
+            #    logger.debug(rngIndex)
+            #    df.index = rngIndex
+            #import pdb; pdb.set_trace()
+            logger.debug(df.index)
+            logger.debug(df.head())
+            df = df.fillna('')
+            model = PandasModel(df)
+            self.pandasTv.setModel(model)
+        else:
+            self.pandasTv.hide()
 
     @lru_cache(8)
     def reader(self, file, offset, from_what=os.SEEK_SET, nbytes=None):
@@ -308,6 +417,17 @@ class Widget(QtWidgets.QWidget):
             except Exception as e:
                 logger.warning(f"Could not encode file in unicode. {e}")
                 text = text.decode("latin1")
+
+        #make unix compatible
+        text = text.replace("\r\n", "\n")
+
+        if from_what == os.SEEK_END:
+            firstlineend = text.find("\n", 1)
+            text = text[firstlineend + 1:]
+        elif from_what == os.SEEK_CUR:
+            lastlinenend = text.rfind("\n")
+            text = text[:lastlinenend]
+
         return text
 
 
@@ -353,6 +473,12 @@ class LineCount(QThread):
 if __name__ == "__main__":
     import sys
     app = QtWidgets.QApplication(sys.argv)
+    app.processEvents()
     w = Widget()
     w.show()
+
+    timer = QtCore.QTimer()
+    timer.timeout.connect(lambda: None)
+    timer.start(100)
+
     sys.exit(app.exec_())
