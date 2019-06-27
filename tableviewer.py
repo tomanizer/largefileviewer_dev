@@ -6,6 +6,8 @@ from pathlib import Path
 import os
 from functools import lru_cache
 
+from PandasModel import PandasModel
+
 FORMAT = '%(asctime)s - %(name)20s - %(funcName)20s - %(levelname)8s - %(message)s'
 logging.basicConfig(level=logging.DEBUG, format=FORMAT)
 logger = logging.getLogger(__name__)
@@ -13,60 +15,12 @@ logger = logging.getLogger(__name__)
 
 class Widget(QtWidgets.QWidget):
     def __init__(self, parent=None):
+
         QtWidgets.QWidget.__init__(self, parent=None)
-        vLayout = QtWidgets.QVBoxLayout(self)
-        hLayout = QtWidgets.QHBoxLayout()
-        hLayoutText = QtWidgets.QHBoxLayout()
 
-        self.setWindowTitle("Large File Reader")
+        self.initUI()
 
-        self.pathLE = QtWidgets.QLineEdit(self)
-        hLayout.addWidget(self.pathLE)
-
-        self.loadBtn = QtWidgets.QPushButton("Select File", self)
-        hLayout.addWidget(self.loadBtn)
-        self.loadBtn.clicked.connect(self.loadFile)
-
-        self.firstBtn = QtWidgets.QPushButton("First", self)
-        hLayout.addWidget(self.firstBtn)
-        self.firstBtn.clicked.connect(self.loadFirst)
-
-        self.lastBtn = QtWidgets.QPushButton("Last", self)
-        hLayout.addWidget(self.lastBtn)
-        self.lastBtn.clicked.connect(self.loadLast)
-
-        self.linenumberEdit = QtWidgets.QLineEdit(self)
-        self.linenumberEdit.setMinimumWidth(20)
-        self.linenumberEdit.setMaximumWidth(80)
-        hLayout.addWidget(self.linenumberEdit)
-
-        self.gotoBtn = QtWidgets.QPushButton("Goto", self)
-        hLayout.addWidget(self.gotoBtn)
-        self.gotoBtn.clicked.connect(self.loadLine)
-
-        vLayout.addLayout(hLayout)
-
-        #self.linewnd = QtWidgets.QTextEdit(self)
-        #hLayoutText.addWidget(self.linewnd)
-        #self.linewnd.setReadOnly(True)
-        #self.linewnd.setWordWrapMode(False)
-        #self.linewnd.setFont(QtGui.QFont('Courier New', 10))
-        #self.linewnd.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        #self.linewnd.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        #self.linewnd.setMaximumWidth(60)
-
-        self.textwnd = QtWidgets.QTextEdit(self)
-        hLayoutText.addWidget(self.textwnd)
-        self.textwnd.setReadOnly(True)
-        self.textwnd.setWordWrapMode(False)
-        self.textwnd.setFont(QtGui.QFont('Courier New', 10))
-
-        vLayout.addLayout(hLayoutText)
-
-        self.statusBar = QtWidgets.QStatusBar()
-        vLayout.addWidget(self.statusBar)
-
-        self.chunksize = 5 * 1024 ** 2
+        self.chunksize = 2 * 1024 ** 2
         self.linechunk = 10000
 
         self.file_index_thread = FileIndex(filename='', linechunk=self.linechunk)
@@ -78,13 +32,85 @@ class Widget(QtWidgets.QWidget):
         self.fileName = None
         self.fileFormat = None
         self.filesize = None
+        self.file_index = None
         self.filelength = None #length of file in bytes
         self.chunklines = None
         self.linesize = None
         self.headsize = None
         self.estimated_lines = None
         self.total_lines = None
-        self.line_numbers = True
+        self.line_numbers = self.linesnumberCheck.isChecked
+
+    def initUI(self):
+
+        self.left = 500
+        self.top = 500
+        self.width = 800
+        self.height = 500
+        self.setGeometry(self.left, self.top, self.width, self.height)
+
+        vLayout = QtWidgets.QVBoxLayout(self)
+        hLayout = QtWidgets.QHBoxLayout()
+        hLayoutText = QtWidgets.QHBoxLayout()
+
+        self.setWindowTitle("Large File Reader")
+        self.setWindowIcon(QtGui.QIcon(r'C:/Users/haederth/Downloads/baseline-arrow_right-24px.svg'))
+
+        self.pathLE = QtWidgets.QLineEdit(self)
+        hLayout.addWidget(self.pathLE)
+
+        self.loadBtn = QtWidgets.QPushButton("Select File", self)
+        hLayout.addWidget(self.loadBtn)
+        self.loadBtn.clicked.connect(self.loadFile)
+
+        self.firstBtn = QtWidgets.QPushButton("First", self)
+        hLayout.addWidget(self.firstBtn)
+        self.firstBtn.clicked.connect(self.loadFirst)
+        self.firstBtn.setMaximumWidth(40)
+
+        self.lastBtn = QtWidgets.QPushButton("Last", self)
+        hLayout.addWidget(self.lastBtn)
+        self.lastBtn.clicked.connect(self.loadLast)
+        self.lastBtn.setMaximumWidth(40)
+
+        self.linenumberEdit = QtWidgets.QLineEdit(self)
+        self.linenumberEdit.setMinimumWidth(20)
+        self.linenumberEdit.setMaximumWidth(80)
+        hLayout.addWidget(self.linenumberEdit)
+
+        self.gotoBtn = QtWidgets.QPushButton("Goto", self)
+        hLayout.addWidget(self.gotoBtn)
+        self.gotoBtn.clicked.connect(self.loadLine)
+        self.gotoBtn.setEnabled(False)
+
+        self.linesnumberCheck = QtWidgets.QCheckBox("Line Numbers")
+        hLayout.addWidget(self.linesnumberCheck)
+        #self.self.linesnumberCheck.stateChanged.connect(lambda: self.line_numbers()
+
+
+        vLayout.addLayout(hLayout)
+
+        # self.linewnd = QtWidgets.QTextEdit(self)
+        # hLayoutText.addWidget(self.linewnd)
+        # self.linewnd.setReadOnly(True)
+        # self.linewnd.setWordWrapMode(False)
+        # self.linewnd.setFont(QtGui.QFont('Courier New', 10))
+        # self.linewnd.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        # self.linewnd.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        # self.linewnd.setMaximumWidth(60)
+
+        self.textwnd = QtWidgets.QTextEdit(self)
+        hLayoutText.addWidget(self.textwnd)
+        self.textwnd.setReadOnly(True)
+        self.textwnd.setWordWrapMode(False)
+        self.textwnd.setFont(QtGui.QFont('Courier New', 10))
+        self.textwnd.ensureCursorVisible()
+        cursor = self.textwnd.textCursor()
+
+        vLayout.addLayout(hLayoutText)
+
+        self.statusBar = QtWidgets.QStatusBar()
+        vLayout.addWidget(self.statusBar)
 
     def _chunklines(self):
         """How many lines of text are in one chunk of bytes"""
@@ -103,10 +129,9 @@ class Widget(QtWidgets.QWidget):
     def _line_numbers(self, text, linestart=0):
         lines = '\n'.join(str(n + linestart) for n,_ in enumerate(text.split('\n')))
         return lines
-        #logger.debug(lines)
 
     def _add_line_numbers(selfself, text, linestart=0):
-        a = [[str(n + linestart), ' || ', _] for n, _ in enumerate(text.split('\n'))]
+        a = [[str(n + linestart), ' | ', _] for n, _ in enumerate(text.split('\n'))]
         #a = a[1:]
         c = [''.join(b) for b in a]
         d = '\n'.join(c)
@@ -117,55 +142,72 @@ class Widget(QtWidgets.QWidget):
         logger.debug("loadFirst")
         if self.filelength <= self.chunksize:
             logger.debug(f"EOF {self.filelength} <= chunksize {self.chunksize}")
-            text = self.reader(0, os.SEEK_SET, nbytes=None)
+            text = self.reader(self.fileName, 0, os.SEEK_SET, nbytes=None)
         else:
             logger.debug(f"EOF {self.filelength} >  chunksize{self.chunksize}")
-            text = self.reader(0, os.SEEK_SET, nbytes=self.chunksize)
-        if self.line_numbers:
+            text = self.reader(self.fileName, 0, os.SEEK_SET, nbytes=self.chunksize)
+        if self.line_numbers():
             text = self._add_line_numbers(text, linestart=0)
         self.textwnd.setText(text)
-        # self.linewnd.setText(self._line_numbers(text, 0))
-        #self.statusBar.showMessage(f"First loaded")
 
     def loadLast(self):
         """Load last chunk of bytes"""
         logger.debug("loadLast")
         if self.filelength >= self.chunksize:
             logger.debug(f"EOF {self.filelength} >=  chunksize {self.chunksize}")
-            text = self.reader(-self.chunksize, from_what=os.SEEK_END, nbytes=self.chunksize)
+            text = self.reader(self.fileName, -self.chunksize, from_what=os.SEEK_END, nbytes=self.chunksize)
         else:
             logger.debug(f"EOF {self.filelength} chunksize < {self.chunksize}")
-            text = self.reader(0, from_what=os.SEEK_SET)
-        if self.line_numbers:
+            text = self.reader(self.fileName, 0, from_what=os.SEEK_SET)
+
+        lastchunklines = self._chunklines()
+        logger.debug(f"Lines in the last chunk: {lastchunklines}")
+
+        if self.line_numbers():
             if self.total_lines:
-                startline = self.total_lines - self.chunklines
+                logger.debug(f"Total lines are known: {self.total_lines}")
+                startline = self.total_lines - lastchunklines
             else:
-                startline = self.estimated_lines - self.chunklines
+                logger.debug(f"Lines are estimated: {self.estimated_lines}")
+                startline = self.estimated_lines - lastchunklines
+            logger.debug(f"Last chunk startline: {startline}")
             text = self._add_line_numbers(text, linestart=startline)
         self.textwnd.setText(text)
         self.textwnd.moveCursor(QtGui.QTextCursor.End)
-        #self.statusBar.showMessage(f"Last loaded")
 
 
-    def loadLine(self ):
+
+    def loadLine(self):
         """Move to  record in file"""
         logger.debug("loadLine")
-        #import pdb; pdb.set_trace()
         linenumber = int(self.linenumberEdit.text())
+        if linenumber > self.total_lines:
+            logger.warning("Line number requested is greater than total lines in file. Returning last line.")
+            linenumber = self.total_lines
+        elif linenumber < 0:
+            logger.warning("Line number requested is smaller than 0. Returning first line.")
+            linenumber = 0
         logger.debug(f"Loading line {linenumber}")
-        import pdb; pdb.set_trace
-        lineschunk = linenumber // self.linechunk * self.linechunk
+        if linenumber == 0:
+            lineschunk = 0
+        else:
+            lineschunk = linenumber // self.linechunk * self.linechunk + 1
         logger.debug(f"Loading from index position {lineschunk}")
+
         byteposition = self.file_index[lineschunk]
         logger.debug(f"Byteposition in file {byteposition}")
-        text = self.reader(byteposition, from_what=os.SEEK_SET, nbytes=self.chunksize)
+        text = self.reader(self.fileName, byteposition, from_what=os.SEEK_SET, nbytes=self.chunksize)
         # self.linewnd.setText(self._line_numbers(text, linenumber))
-        if self.line_numbers:
+        if self.line_numbers():
             text = self._add_line_numbers(text, linestart=lineschunk)
         self.textwnd.setText(text)
-        #self.statusBar.showMessage(f"Line loaded")
-        #self.textwnd.moveCursor(QtGui.QTextCursor.End)
 
+        # move cursor to selected line
+        offset = linenumber % self.linechunk - 1
+        logger.debug(f"Moving {offset} in current text window.")
+        cursor = self.textwnd.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.Down, QtGui.QTextCursor.MoveAnchor, offset)
+        self.textwnd.setTextCursor(cursor)
 
     def loadFile(self):
         """Load the file from file picker"""
@@ -209,11 +251,12 @@ class Widget(QtWidgets.QWidget):
 
     def _file_index(self, result):
         self.file_index = result
+        self.gotoBtn.setEnabled(True)
         logger.debug("File index created: {}".format(self.file_index))
 
 
     @lru_cache(8)
-    def reader(self, offset, from_what=os.SEEK_SET, nbytes=None):
+    def reader(self, file, offset, from_what=os.SEEK_SET, nbytes=None):
         """
         Read bytes from file using offsets
 
@@ -223,20 +266,22 @@ class Widget(QtWidgets.QWidget):
         :param nbytes:
         :return:
         """
-        with open(self.fileName, 'rb') as myfile:
-            if from_what == os.SEEK_SET:
-                read_position = "start of file"
-            elif from_what == os.SEEK_END:
-                read_position = "end of file"
-            elif from_what == os.SEEK_CUR:
-                read_position = "current position in file"
-            else:
-                raise ValueError("from what must be valid os.SEEK type")
-            if nbytes:
-                read_bytes = f"{nbytes} bytes"
-            else:
-                read_bytes = f"all bytes"
-            logger.debug(f"Reading {read_bytes} from {read_position}")
+
+        if from_what == os.SEEK_SET:
+            read_position = "start of file"
+        elif from_what == os.SEEK_END:
+            read_position = "end of file"
+        elif from_what == os.SEEK_CUR:
+            read_position = "current position in file"
+        else:
+            raise ValueError("from what must be valid os.SEEK type")
+        if nbytes:
+            read_bytes = f"{nbytes} bytes"
+        else:
+            read_bytes = f"all bytes"
+        logger.debug(f"Reading chunk  of {read_bytes} bytes at  {offset} from {read_position}")
+
+        with open(file, 'rb') as myfile:
             myfile.seek(offset, from_what)
             text = myfile.read(nbytes)
             try:
@@ -260,9 +305,10 @@ class FileIndex(QThread):
         logger.debug("Indexing file...")
         assert self.filename != ''
         with open(self.filename, 'r') as myfile:
-            fileindex = {n: myfile.tell() for n, _ in enumerate(iter(myfile.readline, '')) if n % self.linechunk == 0}
-            logger.debug("Indexing file...Done")
-            self.signal.emit(fileindex)
+            fileindex = {n: myfile.tell() for n, _ in enumerate(iter(myfile.readline, '')) if n % self.linechunk == 1}
+        fileindex[0] = 0
+        logger.debug("Indexing file...Done")
+        self.signal.emit(fileindex)
 
 
 class LineCount(QThread):
