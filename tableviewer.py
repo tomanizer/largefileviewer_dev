@@ -63,7 +63,7 @@ class Widget(QtWidgets.QWidget):
         hLayoutText = QtWidgets.QHBoxLayout()
 
         self.setWindowTitle("Large File Reader")
-        self.setWindowIcon(QtGui.QIcon(r'C:/Users/haederth/Downloads/baseline-arrow_right-24px.svg'))
+        self.setWindowIcon(QtGui.QIcon(r'P:\pyprojects\largefileviewer\resources\images\baseline-arrow_right-24px.svg'))
 
         # self.pathLE = QtWidgets.QLineEdit(self)
         # hLayout.addWidget(self.pathLE)
