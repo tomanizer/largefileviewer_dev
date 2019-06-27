@@ -10,6 +10,7 @@ from PandasModel import PandasModel
 import pandas as pd
 import csv
 from io import StringIO
+import re
 
 FORMAT = '%(asctime)s - %(name)20s - %(funcName)20s - %(levelname)8s - %(message)s'
 logging.basicConfig(level=logging.DEBUG, format=FORMAT)
@@ -33,6 +34,9 @@ class Widget(QtWidgets.QWidget):
         self.line_count_thread = LineCount(filename='')
         self.line_count_thread.signal.connect(self._total_lines)
 
+        self.search_index_thread = SearchIndex(filename='')
+        self.search_index_thread.signal.connect(self._search_index)
+
         self.fileName = None
         self.fileFormat = None
         self.filesize = None
@@ -48,6 +52,7 @@ class Widget(QtWidgets.QWidget):
         self.delimiter = None
         self.dialect = None
         self.currentstartline = None #row number of the current chunk
+        self.searchindex = None
         self.line_numbers = self.linesnumberCheck.isChecked
 
     def initUI(self):
@@ -183,6 +188,7 @@ class Widget(QtWidgets.QWidget):
         self.estimated_lines = None
         self.currentstartline = None
         self.chunklines = None
+        self.searchindex = None
 
     def set_fileproperties(self, text):
 
@@ -322,6 +328,7 @@ class Widget(QtWidgets.QWidget):
         self.setWindowTitle("Large File Reader " + self.fileName)
         self.file_index_thread.filename = self.fileName
         self.line_count_thread.filename = self.fileName
+        self.search_index_thread.filename = self.fileName
 
         self.fileFormat = Path(self.fileName).suffix
         logger.debug("File format is {}".format(self.fileFormat))
@@ -336,6 +343,7 @@ class Widget(QtWidgets.QWidget):
 
         self.file_index_thread.start()
         self.line_count_thread.start()
+        self.search_index_thread.start()
 
     def estimate_lines(self):
         """Estime line count without iterating through file"""
@@ -357,6 +365,10 @@ class Widget(QtWidgets.QWidget):
         self.gotoBtn.setEnabled(True)
         logger.debug("File index created: {}".format(self.file_index))
 
+    def _search_index(self, result):
+        self.searchindex = result
+        logger.debug("Search index created: {}".format(self.searchindex))
+
     def _show_as_table(self):
 
         if self.tableBtn.isChecked():
@@ -369,14 +381,15 @@ class Widget(QtWidgets.QWidget):
             self.pandasTv.setMaximumWidth(10000)
             mydata = StringIO(text)
             df = pd.read_csv(mydata, dialect=self.dialect, names=self.header, error_bad_lines=False)
+            # TODO fix the index in the table view. update the index without erroring in pandas model
             #if self.total_lines:
             #    rngIndex = pd.RangeIndex(start=self.currentstartline, stop=self.currentstartline + len(df), step=1)
             #    df.index = rngIndex
             #    logger.debug(rngIndex)
             #    df.index = rngIndex
             #import pdb; pdb.set_trace()
-            logger.debug(df.index)
-            logger.debug(df.head())
+            #logger.debug(df.index)
+            #logger.debug(df.head())
             df = df.fillna('')
             model = PandasModel(df)
             self.pandasTv.setModel(model)
@@ -468,6 +481,35 @@ class LineCount(QThread):
                 pass
         logger.debug(f"Counting lines in file...Done. {n} lines.")
         self.signal.emit(n)
+
+class SearchIndex(QThread):
+    """Index the lines in a large file in a separate thread"""
+    signal = pyqtSignal('PyQt_PyObject')
+
+    def __init__(self, filename):
+        QThread.__init__(self)
+        self.filename = filename
+
+    def run(self):
+        logger.debug("Creating search index...")
+        assert self.filename != ''
+        do_not_index={}
+        searchindex = {}
+        itemsindexed = 0
+        with open(self.filename, 'r', encoding="utf-8") as myfile:
+
+            for ln, line in enumerate(myfile):
+                terms = re.findall(r"[\w'\-[0-9]+", line)
+                for t in terms:
+                    if not do_not_index.get(t, False):
+                        searchindex[t] = list(set(searchindex.get(t, []) + [ln])) #store line in which each searchindex lives
+                        if len(searchindex[t]) > 50:
+                            do_not_index[t] = True
+                if len(searchindex.keys()) % 100000 == 0:
+                    itemsindexed += 100000
+                    logger.debug(f"{itemsindexed} indexed.")
+        logger.debug(f"Creating search index...Done. {len(searchindex.keys())} items indexed.")
+        self.signal.emit(searchindex)
 
 
 if __name__ == "__main__":
