@@ -103,7 +103,7 @@ class Widget(QtWidgets.QWidget):
         hLayout.addWidget(self.gotoBtn)
         self.gotoBtn.setMinimumWidth(50)
         self.gotoBtn.setMaximumWidth(50)
-        self.gotoBtn.clicked.connect(partial(self.loadLine, self.linenumberEdit.text()))
+        self.gotoBtn.clicked.connect(self.loadLine)
         self.gotoBtn.setEnabled(False)
 
         self.linesnumberCheck = QtWidgets.QCheckBox("Line Numbers")
@@ -120,7 +120,6 @@ class Widget(QtWidgets.QWidget):
         self.searchBtn.setMaximumWidth(50)
         self.searchBtn.clicked.connect(self.search)
         self.searchBtn.setEnabled(False)
-
 
         self.rawBtn = QtWidgets.QPushButton("Show as file", self)
         hLayout.addWidget(self.rawBtn)
@@ -157,7 +156,6 @@ class Widget(QtWidgets.QWidget):
         self.textwnd.setFont(QtGui.QFont('Courier New', 10))
         self.textwnd.ensureCursorVisible()
         self.textwnd.setAcceptDrops(True)
-
 
         self.pandasTv = QtWidgets.QTableView(self)
         self.pandasTv.setSortingEnabled(True)
@@ -300,19 +298,20 @@ class Widget(QtWidgets.QWidget):
             linenumber = 0
 
         logger.debug(f"Loading line {linenumber}")
-        if linenumber <  self.linechunk:
+        if linenumber < self.linechunk:
             lineschunk = 0
         else:
             lineschunk = linenumber // self.linechunk * self.linechunk + 1
         return lineschunk
 
-    def loadLine(self, linenumber):
+    def loadLine(self, linenumber=None):
         """Move to  record in file"""
         logger.debug("loadLine")
-        import pdb; pdb.set_trace()
 
+        if not linenumber:
+            linenumber = int(self.linenumberEdit.text())
 
-        self.currentstartline = self.currentchunk(linenumber) #find index chunk in which the line is located
+        self.currentstartline = self.currentchunk(linenumber) # find index chunk in which the line is located
         logger.debug(f"Loading from index position {self.currentstartline}")
 
         byteposition = self.file_index[self.currentstartline] #must be an index key
@@ -324,7 +323,10 @@ class Widget(QtWidgets.QWidget):
         self.textwnd.setText(text)
 
         # move cursor to selected line
-        offset = linenumber % self.linechunk - 1
+        if self.currentstartline == 0:
+            offset = linenumber % self.linechunk # we are starting the index at 0 not at 1, hence first chunk is different
+        else:
+            offset = linenumber % self.linechunk - 1
         logger.debug(f"Moving {offset} in current text window.")
         cursor = self.textwnd.textCursor()
         cursor.movePosition(QtGui.QTextCursor.Down, QtGui.QTextCursor.MoveAnchor, offset)
@@ -332,9 +334,8 @@ class Widget(QtWidgets.QWidget):
 
         if self.tableBtn.isChecked():
             self._show_as_table()
-            #cursor = self.pandasTv.textCursor()
-            #cursor.movePosition(QtGui.QTextCursor.Down, QtGui.QTextCursor.MoveAnchor, offset)
-            #self.pandasTv.setTextCursor(cursor)
+
+
 
     def loadFile(self):
         """Load the file from file picker"""
@@ -371,9 +372,9 @@ class Widget(QtWidgets.QWidget):
 
         self.chunklines = self._chunklines()
 
-        self.file_index_thread.start()
-        self.line_count_thread.start()
-        self.search_index_thread.start()
+        self.file_index_thread.start(QtCore.QThread.HighestPriority)
+        self.line_count_thread.start(QtCore.QThread.HighPriority)
+        self.search_index_thread.start(QtCore.QThread.NormalPriority)
 
         self.rawBtn.toggle()  # toggle view as file button
         self.rawBtn.setEnabled(True)
@@ -416,29 +417,28 @@ class Widget(QtWidgets.QWidget):
             if i == n:
                 return shortdict
 
-
     def _search_index(self, result):
         self.searchindex = result
         self.searchBtn.setEnabled(True)
-        import pdb; pdb.set_trace()
         searchindexstring = self._first_dict_times(self.searchindex, 5)
         logger.debug("Search index created: {}".format(str(searchindexstring) + "..."))
 
     def search(self):
         searchterm = self.searchEdit.text()
         foundlines = self.searchindex.get(searchterm, None)
+        import pdb; pdb.set_trace()
         if foundlines:
             self.statusBar.showMessage(f"{searchterm} is in lines {foundlines}.")
         else:
             self.statusBar.showMessage(f"{searchterm} not found.")
+        # go to first search term
+        self.loadLine(foundlines[0])
 
     def _show_as_table(self):
 
         if self.tableBtn.isChecked():
             self.pandasTv.show()
 
-            #if self.pandasTv.isHidden():
-            #    self.pandasTv.setVisible(True)
             text = self.textwnd.toPlainText()
             #lineno = self._line_numbers(text=text, linestart=self.currentstartline, return_as_text=False)
             self.pandasTv.setMaximumWidth(10000)
@@ -560,7 +560,6 @@ class SearchIndex(QThread):
         searchindex = {}
         itemsindexed = 0
         with open(self.filename, 'r', encoding="utf-8") as myfile:
-
             for ln, line in enumerate(myfile):
                 terms = re.findall(r"[\w'\-[0-9]+", line)
                 for t in terms:
