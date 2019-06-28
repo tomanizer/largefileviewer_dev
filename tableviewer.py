@@ -84,12 +84,14 @@ class Widget(QtWidgets.QWidget):
         self.firstBtn.clicked.connect(self.loadFirst)
         self.firstBtn.setMinimumWidth(40)
         self.firstBtn.setMaximumWidth(40)
+        self.firstBtn.setEnabled(False)
 
         self.lastBtn = QtWidgets.QPushButton("Last", self)
         hLayout.addWidget(self.lastBtn)
         self.lastBtn.clicked.connect(self.loadLast)
         self.lastBtn.setMinimumWidth(40)
         self.lastBtn.setMaximumWidth(40)
+        self.lastBtn.setEnabled(False)
 
         self.linenumberEdit = QtWidgets.QLineEdit(self)
         self.linenumberEdit.setMinimumWidth(20)
@@ -107,14 +109,22 @@ class Widget(QtWidgets.QWidget):
         hLayout.addWidget(self.linesnumberCheck)
         #self.self.linesnumberCheck.stateChanged.connect(lambda: self.line_numbers()
 
+        self.rawBtn = QtWidgets.QPushButton("Show as file", self)
+        hLayout.addWidget(self.rawBtn)
+        self.rawBtn.setCheckable(True)
+        self.rawBtn.clicked.connect(lambda: None)
+        self.rawBtn.setMinimumWidth(80)
+        self.rawBtn.setMaximumWidth(80)
+        self.rawBtn.setEnabled(False)
+        self.rawBtn.clicked.connect(self.toggleTextWnd)
+
         self.tableBtn = QtWidgets.QPushButton("Show as table", self)
         hLayout.addWidget(self.tableBtn)
         self.tableBtn.setCheckable(True)
         self.tableBtn.clicked.connect(self._show_as_table)
         self.tableBtn.setMinimumWidth(80)
         self.tableBtn.setMaximumWidth(80)
-
-
+        self.tableBtn.setEnabled(False)
 
         vLayout.addLayout(hLayout)
 
@@ -133,6 +143,8 @@ class Widget(QtWidgets.QWidget):
         self.textwnd.setWordWrapMode(False)
         self.textwnd.setFont(QtGui.QFont('Courier New', 10))
         self.textwnd.ensureCursorVisible()
+        self.textwnd.setAcceptDrops(True)
+
 
         self.pandasTv = QtWidgets.QTableView(self)
         self.pandasTv.setSortingEnabled(True)
@@ -314,6 +326,7 @@ class Widget(QtWidgets.QWidget):
         logger.debug("loadFile")
         fileName, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open File", "", "All Files (*);;CSV Files (*.csv);;TSV Files (*.txt; *.tsv);;Parquet Files (*.parc; *.parquet)");
 
+
         if self.file_index_thread.isRunning():
             self.file_index_thread.terminate()
         if self.line_count_thread.isRunning():
@@ -345,8 +358,20 @@ class Widget(QtWidgets.QWidget):
         self.line_count_thread.start()
         self.search_index_thread.start()
 
+        self.rawBtn.toggle()  # toggle view as file button
+        self.rawBtn.setEnabled(True)
+        self.lastBtn.setEnabled(True)
+        self.firstBtn.setEnabled(True)
+        self.tableBtn.setEnabled(True)
+
+    def toggleTextWnd(self):
+        if self.rawBtn.isChecked():
+            self.textwnd.setVisible(True)
+        else:
+            self.textwnd.setVisible(False)
+
     def estimate_lines(self):
-        """Estime line count without iterating through file"""
+        """Estimate line count without iterating through file"""
         logger.debug("estimate Lines")
         self.filesize = Path(self.fileName).stat().st_size
         text = self.textwnd.toPlainText()
