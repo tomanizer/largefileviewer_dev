@@ -11,6 +11,7 @@ import pandas as pd
 import csv
 from io import StringIO
 import re
+from functools import partial
 
 FORMAT = '%(asctime)s - %(name)20s - %(funcName)20s - %(levelname)8s - %(message)s'
 logging.basicConfig(level=logging.DEBUG, format=FORMAT)
@@ -102,12 +103,24 @@ class Widget(QtWidgets.QWidget):
         hLayout.addWidget(self.gotoBtn)
         self.gotoBtn.setMinimumWidth(50)
         self.gotoBtn.setMaximumWidth(50)
-        self.gotoBtn.clicked.connect(self.loadLine)
+        self.gotoBtn.clicked.connect(partial(self.loadLine, self.linenumberEdit.text()))
         self.gotoBtn.setEnabled(False)
 
         self.linesnumberCheck = QtWidgets.QCheckBox("Line Numbers")
         hLayout.addWidget(self.linesnumberCheck)
-        #self.self.linesnumberCheck.stateChanged.connect(lambda: self.line_numbers()
+
+        self.searchEdit = QtWidgets.QLineEdit(self)
+        self.searchEdit.setMinimumWidth(40)
+        self.searchEdit.setMaximumWidth(300)
+        hLayout.addWidget(self.searchEdit)
+
+        self.searchBtn = QtWidgets.QPushButton("Search", self)
+        hLayout.addWidget(self.searchBtn)
+        self.searchBtn.setMinimumWidth(50)
+        self.searchBtn.setMaximumWidth(50)
+        self.searchBtn.clicked.connect(self.search)
+        self.searchBtn.setEnabled(False)
+
 
         self.rawBtn = QtWidgets.QPushButton("Show as file", self)
         hLayout.addWidget(self.rawBtn)
@@ -160,6 +173,7 @@ class Widget(QtWidgets.QWidget):
 
         self.statusBar = QtWidgets.QStatusBar()
         vLayout.addWidget(self.statusBar)
+
 
     def _chunklines(self):
         """How many lines of text are in one chunk of bytes"""
@@ -292,12 +306,13 @@ class Widget(QtWidgets.QWidget):
             lineschunk = linenumber // self.linechunk * self.linechunk + 1
         return lineschunk
 
-    def loadLine(self):
+    def loadLine(self, linenumber):
         """Move to  record in file"""
         logger.debug("loadLine")
-        linenumber = int(self.linenumberEdit.text())
+        import pdb; pdb.set_trace()
 
-        self.currentstartline = self.currentchunk(linenumber)
+
+        self.currentstartline = self.currentchunk(linenumber) #find index chunk in which the line is located
         logger.debug(f"Loading from index position {self.currentstartline}")
 
         byteposition = self.file_index[self.currentstartline] #must be an index key
@@ -331,6 +346,8 @@ class Widget(QtWidgets.QWidget):
             self.file_index_thread.terminate()
         if self.line_count_thread.isRunning():
             self.line_count_thread.terminate()
+        if self.search_index_thread.isRunning():
+            self.search_index_thread.terminate()
 
         self.reset_fileproperties()
 
@@ -390,9 +407,30 @@ class Widget(QtWidgets.QWidget):
         self.gotoBtn.setEnabled(True)
         logger.debug("File index created: {}".format(self.file_index))
 
+    def _first_dict_times(self, mydict, n):
+        i = 0
+        shortdict = {}
+        for k, v in mydict.items():
+            i += 1
+            shortdict[k] = v
+            if i == n:
+                return shortdict
+
+
     def _search_index(self, result):
         self.searchindex = result
-        logger.debug("Search index created: {}".format(self.searchindex))
+        self.searchBtn.setEnabled(True)
+        import pdb; pdb.set_trace()
+        searchindexstring = self._first_dict_times(self.searchindex, 5)
+        logger.debug("Search index created: {}".format(str(searchindexstring) + "..."))
+
+    def search(self):
+        searchterm = self.searchEdit.text()
+        foundlines = self.searchindex.get(searchterm, None)
+        if foundlines:
+            self.statusBar.showMessage(f"{searchterm} is in lines {foundlines}.")
+        else:
+            self.statusBar.showMessage(f"{searchterm} not found.")
 
     def _show_as_table(self):
 
